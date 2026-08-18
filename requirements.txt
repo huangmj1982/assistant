@@ -1,0 +1,10 @@
+# AgentKit dependencies
+veadk-python
+veadk-python[extensions]
+
+# Additional dependencies
+python-dotenv
+
+# Feishu / Lark SDK
+lark-oapi
+
