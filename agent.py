@@ -70,7 +70,7 @@ async def main():
     """运行个人助手的主函数"""
     print("欢迎使用智能个人助手！")
     print("输入 'exit' 或 'quit' 退出程序。")
-    print("=" * 50)
+    print("=" * 60)
     
     # 创建智能体运行器
     runner = Runner(
