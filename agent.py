@@ -68,7 +68,7 @@ root_agent = personal_assistant
 
 async def main():
     """运行个人助手的主函数"""
-    print("欢迎使用智能个人助手！")
+    print("欢迎使用智能个人助手! 我是lampard")
     print("输入 'exit' 或 'quit' 退出程序。")
     print("=" * 60)
     
