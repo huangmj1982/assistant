@@ -26,6 +26,14 @@ from veadk.prompts.agent_default_prompt import DEFAULT_DESCRIPTION, DEFAULT_INST
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+
+def _error_event(error_type: str, message: str) -> str:
+    """构造错误事件，与正常事件的 JSON 结构保持一致，便于客户端统一解析"""
+    return json.dumps(
+        {"error": {"type": error_type, "message": message}}, ensure_ascii=False
+    )
+
+
 app = AgentkitSimpleApp()
 
 app_name = "simple_streamable_app"
@@ -47,7 +55,14 @@ agent = Agent(
     instruction=system_prompt,
     tools=tools,
 )
-agent.model._additional_args["stream_options"] = {"include_usage": True}
+# veADK 通过私有属性透传 stream_options，这里做防御性判断，避免 SDK 升级后属性缺失导致启动失败
+_additional_args = getattr(getattr(agent, "model", None), "_additional_args", None)
+if _additional_args is not None:
+    _additional_args["stream_options"] = {"include_usage": True}
+else:
+    logger.warning(
+        "无法设置 stream_options：agent.model._additional_args 不可用，可能 SDK 版本已变更"
+    )
 runner = Runner(agent=agent, app_name=app_name)
 
 
@@ -64,8 +79,8 @@ async def run(payload: dict, headers: dict):
             bool(user_id),
             bool(session_id),
         )
-        yield json.dumps(
-            {"error": "missing required field(s): prompt/user_id/session_id"}
+        yield _error_event(
+            "MissingParameter", "missing required field(s): prompt/user_id/session_id"
         )
         return
 
@@ -98,9 +113,7 @@ async def run(payload: dict, headers: dict):
             yield sse_event
     except Exception as e:
         logger.exception("Error in event_generator: %s", e)
-        # You might want to yield an error event here
-        error_data = json.dumps({"error": str(e)})
-        yield error_data
+        yield _error_event(type(e).__name__, str(e))
 
 
 @app.ping

@@ -21,15 +21,15 @@ FROM agentkit-cn-beijing.cr.volces.com/base/py-simple:python3.12-bookworm-slim-l
 
 ENV UV_SYSTEM_PYTHON=1 UV_COMPILE_BYTECODE=1 PYTHONUNBUFFERED=1 DOCKER_CONTAINER=1
 
+WORKDIR /app
+
 COPY requirements.txt requirements.txt
 
 RUN uv pip install -r requirements.txt
 
-EXPOSE 8000
-
-WORKDIR /app
-
 # Copy entire project
 COPY . .
+
+EXPOSE 8000
 
 CMD ["python", "-m", "agentkit-agent"]
