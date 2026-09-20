@@ -1,77 +1,39 @@
 import os
-import sys
+
+import pytest
 from dotenv import load_dotenv
 
-# 添加用户 site-packages 到搜索路径
-user_site = os.path.expanduser('~/Library/Python/3.12/lib/python/site-packages')
-if os.path.exists(user_site):
-    sys.path.insert(0, user_site)
+dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
 
-print("=" * 50)
-print("测试飞书配置")
-print("=" * 50)
 
-# 先测试assistant目录下的.env
-print("\n1. 测试 assistant 目录下的 .env 文件")
-print("-" * 50)
-dotenv_path_assistant = os.path.join(os.path.dirname(__file__), '.env')
-load_dotenv(dotenv_path=dotenv_path_assistant, override=True)
-print(f"加载环境变量文件: {dotenv_path_assistant}")
+@pytest.fixture(autouse=True)
+def _load_env():
+    load_dotenv(dotenv_path=dotenv_path, override=True)
 
-app_id = os.getenv("FEISHU_APP_ID")
-app_secret = os.getenv("FEISHU_APP_SECRET")
 
-print(f"FEISHU_APP_ID: {app_id if app_id else '未设置'}")
-print(f"FEISHU_APP_SECRET: {'***' if app_secret else '未设置'}")
+def test_feishu_credentials_configured():
+    """飞书应用凭证应从 .env 正确加载"""
+    if not os.path.exists(dotenv_path):
+        pytest.skip("未找到 .env，跳过飞书凭证配置检查")
 
-if not app_id or not app_secret:
-    print("\n错误：飞书应用凭证未配置！")
-else:
-    print("\n✅ assistant 目录下的 .env 文件配置成功！")
+    assert os.getenv("FEISHU_APP_ID"), "FEISHU_APP_ID 未配置"
+    assert os.getenv("FEISHU_APP_SECRET"), "FEISHU_APP_SECRET 未配置"
 
-print("\n" + "=" * 50)
 
-# 再测试项目根目录下的.env
-print("\n2. 测试项目根目录下的 .env 文件")
-print("-" * 50)
-dotenv_path_root = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
-load_dotenv(dotenv_path=dotenv_path_root, override=True)
-print(f"加载环境变量文件: {dotenv_path_root}")
+def test_lark_client_initialization():
+    """使用凭证可以初始化飞书客户端"""
+    app_id = os.getenv("FEISHU_APP_ID")
+    app_secret = os.getenv("FEISHU_APP_SECRET")
+    if not app_id or not app_secret:
+        pytest.skip("未配置飞书凭证，跳过客户端初始化测试")
 
-app_id = os.getenv("FEISHU_APP_ID")
-app_secret = os.getenv("FEISHU_APP_SECRET")
-
-print(f"FEISHU_APP_ID: {app_id if app_id else '未设置'}")
-print(f"FEISHU_APP_SECRET: {'***' if app_secret else '未设置'}")
-
-if not app_id or not app_secret:
-    print("\n错误：飞书应用凭证未配置！")
-    sys.exit(1)
-
-print("\n✅ 项目根目录下的 .env 文件配置成功！")
-
-print("\n" + "=" * 50)
-
-# 尝试初始化飞书客户端
-try:
-    print("\n尝试初始化飞书客户端...")
     import lark_oapi as lark
-    
-    client = lark.Client.builder() \
-        .app_id(app_id) \
-        .app_secret(app_secret) \
-        .log_level(lark.LogLevel.INFO) \
-        .build()
-    
-    print("✅ 飞书客户端初始化成功！")
-    print("=" * 50)
-    
-except Exception as e:
-    print(f"\n❌ 初始化失败: {str(e)}")
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
 
-print("\n" + "=" * 50)
-print("测试完成！")
-print("=" * 50)
+    client = (
+        lark.Client.builder()
+        .app_id(app_id)
+        .app_secret(app_secret)
+        .log_level(lark.LogLevel.INFO)
+        .build()
+    )
+    assert client is not None

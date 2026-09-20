@@ -1,10 +1,12 @@
 # AgentKit dependencies
-veadk-python
-veadk-python[extensions]
+# veadk-python[extensions] 已包含 veadk-python，无需重复声明
+veadk-python[extensions]==0.5.12
 
 # Additional dependencies
-python-dotenv
+python-dotenv==1.2.1
 
 # Feishu / Lark SDK
-lark-oapi
+lark-oapi==1.5.3
 
+# 测试脚本依赖（test_lark_token.py）
+requests==2.32.5
