@@ -97,7 +97,8 @@ async def main():
         except Exception as e:
             print(f"发生错误: {e}")
         
-        print("=" * 60)
+        print("=" * 120)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
