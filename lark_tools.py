@@ -59,7 +59,7 @@ class LarkDocTools:
 
         request_body = SearchDocWikiRequestBody.builder() \
             .query(keyword) \
-            .page_size(20) \
+            .page_size(30) \
             .build()
         request = SearchDocWikiRequest.builder().request_body(request_body).build()
         option = lark.RequestOption.builder().user_access_token(self.user_access_token).build()
