@@ -53,9 +53,21 @@ runner = Runner(agent=agent, app_name=app_name)
 
 @app.entrypoint
 async def run(payload: dict, headers: dict):
-    prompt = payload["prompt"]
-    user_id = headers["user_id"]
-    session_id = headers["session_id"]
+    prompt = payload.get("prompt")
+    user_id = headers.get("user_id")
+    session_id = headers.get("session_id")
+
+    if not prompt or not user_id or not session_id:
+        logger.error(
+            "Missing required field(s): prompt=%s, user_id=%s, session_id=%s",
+            bool(prompt),
+            bool(user_id),
+            bool(session_id),
+        )
+        yield json.dumps(
+            {"error": "missing required field(s): prompt/user_id/session_id"}
+        )
+        return
 
     logger.info(
         f"Running agent with prompt: {prompt}, user_id: {user_id}, session_id: {session_id}"

@@ -10,7 +10,10 @@ from veadk.tools.builtin_tools.execute_skills import execute_skills  # 导入Ski
 from veadk.tools.builtin_tools.web_search import web_search  # 导入web_search联网搜索工具
 from google.adk.agents.callback_context import CallbackContext #导入call_back函数
 from dotenv import load_dotenv
-from .lark_tools import search_lark_docs_tool, get_lark_doc_content_tool  # 导入飞书文档工具
+try:
+    from .lark_tools import search_lark_docs_tool, get_lark_doc_content_tool  # 包方式导入
+except ImportError:
+    from lark_tools import search_lark_docs_tool, get_lark_doc_content_tool  # 顶层模块导入
 
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 load_dotenv(dotenv_path=dotenv_path)

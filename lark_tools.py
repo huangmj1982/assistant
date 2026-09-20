@@ -48,7 +48,7 @@ class LarkDocTools:
             response = client.auth.v3.tenant_access_token(request)
             if response.success():
                 self.tenant_access_token = response.data.tenant_access_token
-                print(f"获取tenant access token成功: {self.tenant_access_token[:20]}...")
+                print("获取 tenant access token 成功")
                 return self.tenant_access_token
             else:
                 print(f"获取tenant access token失败: {response.code}, {response.msg}")

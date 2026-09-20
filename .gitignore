@@ -31,6 +31,9 @@ ENV/
 .env.local
 .env.*.local
 
+# AgentKit config (contains secrets)
+agentkit.yaml
+
 # IDE
 .vscode/
 .idea/
