@@ -46,9 +46,17 @@ async def run(payload: dict, headers: dict) -> str:
     This wrapper handles the standard AgentKit request/response protocol
     and delegates to your Agent for processing.
     """
-    prompt = payload["prompt"]
-    user_id = headers["user_id"]
-    session_id = headers["session_id"]
+    values = {
+        "prompt": payload.get("prompt"),
+        "user_id": headers.get("user_id"),
+        "session_id": headers.get("session_id"),
+    }
+    missing = [name for name, value in values.items() if not value]
+    if missing:
+        raise ValueError(f"缺少必需字段: {', '.join(missing)}")
+    prompt = values["prompt"]
+    user_id = values["user_id"]
+    session_id = values["session_id"]
 
     logger.info(
         f"Running agent with prompt: {prompt}, user_id: {user_id}, session_id: {session_id}"

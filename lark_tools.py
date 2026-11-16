@@ -1,165 +1,179 @@
+import asyncio
+import logging
 import os
-import sys
-import json
-from typing import Optional
+import re
+from urllib.parse import urlparse
+
 from dotenv import load_dotenv
 from google.adk.tools.function_tool import FunctionTool
-
-# 添加用户 site-packages 到搜索路径
-user_site = os.path.expanduser('~/Library/Python/3.12/lib/python/site-packages')
-if os.path.exists(user_site):
-    sys.path.insert(0, user_site)
 
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 load_dotenv(dotenv_path=dotenv_path)
 
+logger = logging.getLogger(__name__)
+
+
 class LarkDocTools:
+    """飞书文档工具：搜索文档与读取文档内容。
+
+    客户端仅使用 app_id/app_secret 构建，lark-oapi SDK 内置 TokenManager
+    会自动获取并续期 tenant_access_token，无需手动管理。
+    """
+
     def __init__(self):
         self.app_id = os.getenv("FEISHU_APP_ID")
         self.app_secret = os.getenv("FEISHU_APP_SECRET")
-        self.client = None
-        self.tenant_access_token = None
-    
-    def get_tenant_access_token(self):
-        """手动获取tenant access token"""
+        self._client = None
+
+    def _get_client(self):
+        """延迟构建飞书客户端；凭证缺失或构建失败时返回 None。"""
+        if self._client is not None:
+            return self._client
         if not self.app_id or not self.app_secret:
             return None
-        
         try:
             import lark_oapi as lark
-            from lark_oapi.api.auth.v3 import TenantAccessTokenRequest, TenantAccessTokenRequestBody
-            
-            # 创建临时客户端获取token
-            client = lark.Client.builder() \
-                .app_id(self.app_id) \
-                .app_secret(self.app_secret) \
-                .log_level(lark.LogLevel.INFO) \
+
+            self._client = (
+                lark.Client.builder()
+                .app_id(self.app_id)
+                .app_secret(self.app_secret)
+                .log_level(lark.LogLevel.WARNING)
                 .build()
-            
-            request_body = TenantAccessTokenRequestBody.builder() \
-                .app_id(self.app_id) \
-                .app_secret(self.app_secret) \
-                .build()
-            
-            request = TenantAccessTokenRequest.builder() \
-                .request_body(request_body) \
-                .build()
-            
-            response = client.auth.v3.tenant_access_token(request)
-            if response.success():
-                self.tenant_access_token = response.data.tenant_access_token
-                print(f"获取tenant access token成功: {self.tenant_access_token[:20]}...")
-                return self.tenant_access_token
-            else:
-                print(f"获取tenant access token失败: {response.code}, {response.msg}")
-                return None
-                
+            )
         except Exception as e:
-            print(f"获取tenant access token异常: {str(e)}")
+            logger.error("初始化飞书客户端失败: %s", self._redact_sensitive(e))
             return None
-    
-    def get_client(self):
-        if not self.client and self.app_id and self.app_secret:
-            # 延迟导入，避免启动时卡住
-            import lark_oapi as lark
-            
-            # 先获取token
-            token = self.get_tenant_access_token()
-            if not token:
-                return None
-            
-            # 使用token创建客户端
-            self.client = lark.Client.builder() \
-                .app_id(self.app_id) \
-                .app_secret(self.app_secret) \
-                .tenant_access_token(token) \
-                .log_level(lark.LogLevel.INFO) \
-                .build()
-        return self.client
+        return self._client
+
+    def _missing_credentials_msg(self) -> str:
+        return "错误：未配置飞书应用凭证（FEISHU_APP_ID 和 FEISHU_APP_SECRET）"
+
+    def _redact_sensitive(self, value) -> str:
+        text = str(value)
+        if self.app_secret:
+            text = text.replace(self.app_secret, "[REDACTED]")
+        return re.sub(r"\b[tu]-[A-Za-z0-9_-]+\b", "[REDACTED]", text)
+
+    @staticmethod
+    def _extract_document_id(document_id: str) -> str:
+        if not isinstance(document_id, str) or not document_id.strip():
+            raise ValueError("文档ID或链接不能为空")
+
+        value = document_id.strip()
+        parsed = urlparse(value)
+        if parsed.scheme or parsed.netloc:
+            parts = [part for part in parsed.path.split("/") if part]
+            if len(parts) == 2 and parts[0] in {"docx", "wiki"}:
+                return parts[1]
+            raise ValueError("无效的飞书文档链接")
+        return value
 
     async def search_lark_docs(self, keyword: str) -> str:
         """
         搜索飞书文档
-        
+
         Args:
             keyword: 搜索关键词
-            
+
         Returns:
             搜索结果的JSON字符串
         """
-        client = self.get_client()
+        client = self._get_client()
         if not client:
-            return "错误：未配置飞书应用凭证（FEISHU_APP_ID 和 FEISHU_APP_SECRET）"
-        
-        try:
-            print(f"搜索飞书文档，关键词: {keyword}")
-            
-            # 延迟导入，避免启动时卡住
+            return self._missing_credentials_msg()
+
+        def _do_search() -> str:
             import lark_oapi as lark
-            from lark_oapi.api.search.v2 import SearchDocWikiRequest, SearchDocWikiResponse, SearchDocWikiRequestBody
-            
-            # 创建请求体
-            request_body = SearchDocWikiRequestBody.builder() \
-                .query(keyword) \
-                .page_size(20) \
+            from lark_oapi.api.search.v2 import (
+                SearchDocWikiRequest,
+                SearchDocWikiRequestBody,
+            )
+
+            request_body = (
+                SearchDocWikiRequestBody.builder()
+                .query(keyword)
+                .page_size(20)
                 .build()
-            
-            # 创建搜索请求
-            request: SearchDocWikiRequest = SearchDocWikiRequest.builder() \
-                .request_body(request_body) \
+            )
+            request = (
+                SearchDocWikiRequest.builder()
+                .request_body(request_body)
                 .build()
-            
-            # 调用搜索API
-            response: SearchDocWikiResponse = client.search.v2.doc_wiki.search(request)
-            
+            )
+
+            response = client.search.v2.doc_wiki.search(request)
+
             if not response.success():
-                error_msg = f"搜索飞书文档失败, 错误代码: {response.code}, 错误信息: {response.msg}, 请求ID: {response.get_log_id()}"
-                print(error_msg)
-                # 返回完整错误信息方便排查
-                return f"搜索失败: {response.msg} (错误代码: {response.code}, 请求ID: {response.get_log_id()})"
-            
-            print(f"搜索成功，找到 {len(response.data.items)} 条结果")
+                safe_msg = self._redact_sensitive(response.msg)
+                logger.warning(
+                    "搜索飞书文档失败, code: %s, msg: %s, log_id: %s",
+                    response.code,
+                    safe_msg,
+                    response.get_log_id(),
+                )
+                return f"搜索失败: {safe_msg} (错误代码: {response.code}, 请求ID: {response.get_log_id()})"
+
+            logger.info("搜索飞书文档成功，关键词: %s", keyword)
             return lark.JSON.marshal(response.data, indent=4)
-            
+
+        try:
+            return await asyncio.to_thread(_do_search)
         except Exception as e:
-            return f"搜索出错: {str(e)}"
+            safe_msg = self._redact_sensitive(e)
+            logger.error("搜索飞书文档异常: %s", safe_msg)
+            return f"搜索出错: {safe_msg}"
 
     async def get_lark_doc_content(self, document_id: str) -> str:
         """
         获取飞书文档内容
-        
+
         Args:
             document_id: 飞书文档ID
-            
+
         Returns:
             文档内容的JSON字符串
         """
-        client = self.get_client()
-        if not client:
-            return "错误：未配置飞书应用凭证（FEISHU_APP_ID 和 FEISHU_APP_SECRET）"
-        
         try:
-            print(f"获取飞书文档内容，文档ID: {document_id}")
-            
-            # 延迟导入，避免启动时卡住
+            document_id = self._extract_document_id(document_id)
+        except ValueError as e:
+            return f"获取文档内容出错: {e}"
+
+        client = self._get_client()
+        if not client:
+            return self._missing_credentials_msg()
+
+        def _do_get_content() -> str:
             import lark_oapi as lark
-            from lark_oapi.api.docx.v1 import RawContentDocumentRequest, RawContentDocumentResponse
-            
-            request: RawContentDocumentRequest = RawContentDocumentRequest.builder() \
-                .document_id(document_id) \
-                .lang(0) \
+            from lark_oapi.api.docx.v1 import RawContentDocumentRequest
+
+            request = (
+                RawContentDocumentRequest.builder()
+                .document_id(document_id)
+                .lang(0)
                 .build()
-            
-            response: RawContentDocumentResponse = client.docx.v1.document.raw_content(request)
-            
+            )
+
+            response = client.docx.v1.document.raw_content(request)
+
             if not response.success():
-                print(f"获取文档内容失败, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}")
-                return f"获取文档内容失败: {response.msg}"
-            
+                safe_msg = self._redact_sensitive(response.msg)
+                logger.warning(
+                    "获取文档内容失败, code: %s, msg: %s, log_id: %s",
+                    response.code,
+                    safe_msg,
+                    response.get_log_id(),
+                )
+                return f"获取文档内容失败: {safe_msg}"
+
             return lark.JSON.marshal(response.data, indent=4)
-            
+
+        try:
+            return await asyncio.to_thread(_do_get_content)
         except Exception as e:
-            return f"获取文档内容出错: {str(e)}"
+            safe_msg = self._redact_sensitive(e)
+            logger.error("获取飞书文档内容异常: %s", safe_msg)
+            return f"获取文档内容出错: {safe_msg}"
 
 
 lark_tools = LarkDocTools()

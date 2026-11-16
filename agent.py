@@ -1,44 +1,62 @@
 import asyncio
+import logging
 import os
 
 from veadk import Agent, Runner  # 导入veADK定义智能体的核心类和运行器
 from veadk.knowledgebase import KnowledgeBase  # 导入知识库组件，可以存储和检索文档知识
 from veadk.memory import LongTermMemory, ShortTermMemory  # 导入记忆组件
 from veadk.tools.builtin_tools.run_code import run_code  # 导入代码沙箱工具
-from veadk.tools.builtin_tools.mcp_router import mcp_router  # 导入MCP工具集
 from veadk.tools.builtin_tools.execute_skills import execute_skills  # 导入Skills执行工具
 from veadk.tools.builtin_tools.web_search import web_search  # 导入web_search联网搜索工具
 from google.adk.agents.callback_context import CallbackContext #导入call_back函数
 from dotenv import load_dotenv
-from .lark_tools import search_lark_docs_tool, get_lark_doc_content_tool  # 导入飞书文档工具
+from lark_tools import search_lark_docs_tool, get_lark_doc_content_tool  # 导入飞书文档工具
+
+# MCP 路由工具依赖平台注入的 TOOL_MCP_ROUTER_URL（云端 AgentKit 自动提供）；
+# 本地缺失时降级，不影响其他工具
+try:
+    from veadk.tools.builtin_tools.mcp_router import mcp_router  # 导入MCP工具集
+except Exception as _mcp_err:
+    mcp_router = None
+    print(f"警告: mcp_router 不可用（{_mcp_err}），MCP 工具路由功能已跳过")
 
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 load_dotenv(dotenv_path=dotenv_path)
 
-memory_name = os.getenv("DATABASE_VIKINGMEM_COLLECTION")
-if not memory_name:
-    raise ValueError("DATABASE_VIKINGMEM_COLLECTION environment variable is not set")
+required_model_configs = ("MODEL_AGENT_NAME", "MODEL_AGENT_API_KEY")
+missing_model_configs = [name for name in required_model_configs if not os.getenv(name)]
+if missing_model_configs:
+    raise RuntimeError(f"缺少必需模型配置: {', '.join(missing_model_configs)}")
 
-# 使用viking作为长期记忆存储，可按需切换 mem0
-long_term_memory = LongTermMemory(backend="viking", index=memory_name)
+memory_name = os.getenv("DATABASE_VIKINGMEM_COLLECTION")
+
+# 使用viking作为长期记忆存储，可按需切换 mem0；未配置时降级为无长期记忆
+long_term_memory = LongTermMemory(backend="viking", index=memory_name) if memory_name else None
+if not memory_name:
+    print("警告: DATABASE_VIKINGMEM_COLLECTION 未设置，长期记忆功能不可用")
 
 # 使用本地内存作为短期记忆，如需持久化backend可配置为mysql，需提前在火山创建数据库
 short_term_memory = ShortTermMemory(backend="local")
 
 knowledge_name = os.getenv("DATABASE_VIKING_COLLECTION")
-if not knowledge_name:
-    raise ValueError("DATABASE_VIKING_COLLECTION environment variable is not set")
 
-# 使用viking作为知识库存储
-knowledgebase = KnowledgeBase(backend="viking", index=knowledge_name)
+# 使用viking作为知识库存储；未配置时降级为无知识库
+knowledgebase = KnowledgeBase(backend="viking", index=knowledge_name) if knowledge_name else None
+if not knowledge_name:
+    print("警告: DATABASE_VIKING_COLLECTION 未设置，知识库检索功能不可用")
 
 # 获取 SKILL_SPACE_ID
 skill_space_id = os.getenv("SKILL_SPACE_ID")
 
 # 定义异步回调函数，用于在代理执行完成后获取当前会话并将其添加到长期记忆存储中
 async def after_agent_execution(callback_context: CallbackContext):
-    session = callback_context._invocation_context.session
-    await long_term_memory.add_session_to_memory(session)
+    if long_term_memory is None:
+        return
+    session = callback_context.session
+    try:
+        await long_term_memory.add_session_to_memory(session)
+    except Exception:
+        logging.getLogger(__name__).exception("写入长期记忆失败")
 
 # 定义个人助手Agent
 personal_assistant = Agent(
@@ -56,10 +74,10 @@ personal_assistant = Agent(
 4. 读取文档内容时，需要从文档链接中提取文档ID（链接最后一部分）
 如果用户询问实时信息、最新新闻、天气、需要联网查询的问题或知识库中没有的信息，请使用 web_search 工具进行联网搜索。""",
     short_term_memory=short_term_memory,
-       long_term_memory=long_term_memory, 
-         knowledgebase=knowledgebase,
+    long_term_memory=long_term_memory,
+    knowledgebase=knowledgebase,
     skills=[skill_space_id] if skill_space_id else [],
-    tools=[run_code, mcp_router, execute_skills, search_lark_docs_tool, get_lark_doc_content_tool, web_search],
+    tools=[t for t in [run_code, mcp_router, execute_skills, search_lark_docs_tool, get_lark_doc_content_tool, web_search] if t is not None],
     after_agent_callback=after_agent_execution,
 )
 
